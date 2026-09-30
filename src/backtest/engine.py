@@ -59,12 +59,18 @@ def events(signal: pd.DataFrame, opens: pd.DataFrame, closes: pd.DataFrame, hold
         if not (np.isfinite(o) and np.isfinite(c)) or o <= 0:
             continue
         raw = c / o - 1
+        # Abnormal return over the 5 sessions BEFORE entry (up to the news-day close):
+        # tells us whether the headline arrived after the market had already moved.
+        pre = np.nan
+        if i >= 6:
+            pc = closes.iloc[i - 1] / closes.iloc[i - 6] - 1
+            pre = float(pc[r.ticker] - pc.mean(skipna=True))
         # Equal-weight market: the AVERAGE of each stock's own return over the same window
         # (averaging prices instead would overweight high-priced stocks).
         mkt = float((closes.iloc[j] / opens.iloc[i] - 1).mean(skipna=True))
-        rows.append((r.ticker, r.date, dates[i], dates[j], r.score, r.n, raw, raw - mkt))
+        rows.append((r.ticker, r.date, dates[i], dates[j], r.score, r.n, raw, raw - mkt, pre))
     return pd.DataFrame(rows, columns=["ticker", "news_date", "entry", "exit", "score", "n",
-                                       "ret", "abn_ret"])
+                                       "ret", "abn_ret", "pre_abn_ret"])
 
 
 def event_study(ev: pd.DataFrame, threshold: float) -> pd.DataFrame:
@@ -75,6 +81,10 @@ def event_study(ev: pd.DataFrame, threshold: float) -> pd.DataFrame:
                         "hit_rate_%": g.apply(lambda s: (s > 0).mean() * 100)})
     se = g.std() / np.sqrt(g.size())
     out["t_stat"] = g.mean() / se
+    if "pre_abn_ret" in ev:
+        gp = ev.groupby(b, observed=False)["pre_abn_ret"]
+        out["pre_5d_abn_ret_%"] = gp.mean() * 100
+        out["pre_t_stat"] = gp.mean() / (gp.std() / np.sqrt(gp.count()))
     return out
 
 
@@ -104,4 +114,4 @@ def portfolio_returns(ev: pd.DataFrame, opens: pd.DataFrame, closes: pd.DataFram
 
 def benchmark_returns(closes: pd.DataFrame) -> pd.Series:
     """Equal-weight buy-and-hold of all stocks, rebalanced daily."""
-    return closes.pct_change().mean(axis=1).fillna(0.0)
+    return closes.pct_change(fill_method=None).mean(axis=1).fillna(0.0)

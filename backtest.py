@@ -27,6 +27,7 @@ import config
 from src.backtest import metrics
 from src.backtest.engine import (Config, benchmark_returns, daily_signal, event_study, events,
                                  portfolio_returns, price_panels)
+from src.ingest.prices import clean_prices
 from src.sentiment.finbert import MODEL_NAME, FinBertScorer
 from src.storage import db
 
@@ -77,13 +78,17 @@ def main() -> None:
     if prices.empty or prices["date"].min() > "2002-12-31":
         raise SystemExit("Prices start too late. Run: python ingest.py --prices-only --start 2001-01-01")
 
+    prices, removed = clean_prices(prices)
+    log.info("Price cleaning removed %d rows: %s", len(removed), removed["reason"].value_counts().to_dict())
     opens, closes = price_panels(prices)
     scored = scored[scored["date"] >= opens.index.min()]
     REPORTS.mkdir(exist_ok=True)
     pd.set_option("display.width", 200)
     fmt = lambda x: f"{x:.2f}"
     md = ["# Backtest results\n", f"Headlines: {len(scored)}  |  threshold {args.threshold}  |  "
-          f"round-trip cost {args.cost:.2%}  |  risk-free {args.rf:.1%}\n"]
+          f"round-trip cost {args.cost:.2%}  |  risk-free {args.rf:.1%}\n",
+          f"Price rows removed by cleaning: {len(removed)} "
+          f"({', '.join(f'{k}: {v}' for k, v in removed['reason'].value_counts().items())})\n"]
     curves = {}
 
     for hold in (1, 5):

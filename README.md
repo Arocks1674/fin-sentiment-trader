@@ -32,7 +32,7 @@ Put your GNews key in `.env` (get one at https://gnews.io). `.env` is git-ignore
 ## Run
 
 ```bat
-python -m pytest -q              :: 45 tests should pass
+python -m pytest -q              :: 48 tests should pass
 python ingest.py --prices-only   :: 2 years of daily prices for 10 Nifty stocks
 python ingest.py                 :: prices + latest news (uses 10 GNews requests)
 python score.py                  :: score new articles per company, print daily sentiment
@@ -104,7 +104,32 @@ Settings (threshold 0.3, hold 1 and 5 days) were fixed before looking at results
 2015-2020 is an honest out-of-sample check. As a placebo, random sentiment scores produce
 t-stats near zero and a losing strategy after costs.
 
-Results: see `reports/results.md` and `reports/equity.png`.
+**Price cleaning.** Yahoo's old NSE data had to be cleaned first. It includes rows before
+TCS listed (Aug 2004), zero-volume holiday rows carrying unadjusted prices (Kotak +381% one
+day, -80% the next; Reliance +337% on its 2005 demerger date) and a one-day unadjusted
+bonus on L&T. These inflated equal-weight buy-and-hold to 43% a year and made positive news
+look like it caused crashes. `clean_prices` removes 1,024 such rows, with tests.
+
+### Findings (4,388 headlines, 2001 to mid-2020)
+
+| News | Abnormal return, 5 days BEFORE the headline | Abnormal return, 5 days AFTER |
+|---|---|---|
+| Positive | +0.50% (t = 4.2) | -0.44% (t = -4.5) |
+| Negative | -0.86% (t = -4.9) | +0.10% (not significant) |
+
+1. **Newspaper headlines arrive after the price has moved.** Stocks rise before positive
+   headlines and fall before negative ones, then positive-news stocks partly reverse.
+   The information is priced before the paper prints it.
+2. **So a long-only strategy on positive headlines does not beat buy-and-hold** in either
+   period, with or without price-report headlines. After 0.25% costs, the 1-day version
+   loses heavily because it trades so often.
+3. Excluding price-report headlines barely changes the result, so the reversal is not just
+   sentiment echoing past returns.
+
+Full tables: `reports/results.md`; equity curves: `reports/equity.png`.
+
+**What would be needed for an edge:** timestamped news (minutes, not dates) so trades can
+happen before the move, which is what the live GNews pipeline collects going forward.
 
 ## Known limits
 
@@ -115,5 +140,8 @@ Results: see `reports/results.md` and `reports/equity.png`.
 - GNews free tier returns only recent articles (about 30 days) and ~100 requests/day,
   so it feeds the live dashboard; the backtest uses the historical archive instead.
 - The historical archive is one general newspaper, headlines only, ending mid-2020.
+- Survivorship bias: the 10 stocks are today's large caps, chosen with hindsight, so
+  buy-and-hold looks unusually strong (about 31% a year in 2001-2014).
+- Some corporate actions (e.g. L&T's 2004 cement demerger) may still be unadjusted in Yahoo data.
 - yfinance is an unofficial Yahoo wrapper; if it prints "possibly delisted", it is
   usually a network or rate-limit issue, not a delisting.
