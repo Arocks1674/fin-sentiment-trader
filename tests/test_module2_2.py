@@ -63,3 +63,11 @@ def test_module21_database_gets_new_columns(tmp_path):
     with sqlite3.connect(p) as c:
         cols = {r[1] for r in c.execute("PRAGMA table_info(entity_sentiment)")}
     assert {"score_news", "n_price_sentences"} <= cols
+
+
+def test_fundamental_moves_are_not_price_reports():
+    assert not is_price_report("Infosys Q3 profit rises 12%, beats estimates")
+    assert not is_price_report("Axis Bank NPAs rise sharply")
+    assert not is_price_report("ICICI Bank net interest income jumps 20%")
+    assert is_price_report("HDFC Bank shares dip as Q2 results near")
+    assert is_price_report("ITC market cap slips below Rs 3.4 lakh crore")

@@ -101,19 +101,33 @@ _LIST = re.compile(r"(?:[A-Z][\w&'.-]*(?:\s+[A-Z&][\w&'.-]*)*\s*,\s*){3,}")
 
 # Sentences that REPORT a price move. They describe returns that already happened, so
 # feeding them into a trading signal partly echoes past prices (a form of lookahead).
-PRICE_REPORT = re.compile(
-    r"(?i)\b(?:fell|falls|fallen|rose|rises|risen|gained|gains|slipped|slips|jumped|jumps|surged|surges|declined|"
-    r"dropped|drops|climbed|tumbled|plunged|crashed|rallied|laggards|gainers|losers|top losers|"
-    r"52[- ]week (?:high|low)s?|trading (?:lower|higher)|upper circuit|lower circuit|"
-    r"(?:up|down) \d+(?:\.\d+)?\s*%)")
+# "Profit rises 12%" is NOT a price report: it is company news, so a move verb right after
+# a fundamentals word (profit, revenue, NPA...) does not count.
+_PRICE_ALWAYS = re.compile(
+    r"(?i)\b(?:52[- ]week (?:high|low)s?|trading (?:lower|higher)|upper circuit|lower circuit|"
+    r"top (?:gainers|losers)|laggards|gainers|losers|market cap|m-cap|shares? (?:price|prices)|"
+    r"stock price|share price)\b")
+_MOVE = re.compile(
+    r"(?i)\b(fell|fall|falls|fallen|rose|rise|rises|risen|gained|gains|slipped|slips|jumped|jumps|surged|surge|surges|"
+    r"dip|dips|dipped|slid|slides|sank|sinks|soared|soars|tanked|tanks|plunges|crashes|rallies|"
+    r"declined|dropped|drops|climbed|tumbled|plunged|crashed|rallied|(?:up|down) \d+(?:\.\d+)?\s*%)")
+_FUNDAMENTAL = re.compile(
+    r"(?i)\b(?:profit|profits|revenue|revenues|sales|income|earnings|margin|margins|ebitda|output|"
+    r"volumes?|orders?|deposits?|loans?|advances|nii|npa|npas|guidance|growth|dividend|exports?|"
+    r"subscribers?|production|capex|debt|borrowing|costs?)\W+(?:\w+\W+){0,2}$")
+
+
+def is_price_report(sentence: str) -> bool:
+    if _PRICE_ALWAYS.search(sentence):
+        return True
+    for m in _MOVE.finditer(sentence):
+        if not _FUNDAMENTAL.search(sentence[:m.start()]):
+            return True
+    return False
 
 
 def is_list_mention(sentence: str) -> bool:
     return bool(_LIST.search(sentence))
-
-
-def is_price_report(sentence: str) -> bool:
-    return bool(PRICE_REPORT.search(sentence))
 
 
 @dataclass

@@ -32,12 +32,13 @@ Put your GNews key in `.env` (get one at https://gnews.io). `.env` is git-ignore
 ## Run
 
 ```bat
-python -m pytest -q              :: 33 tests should pass
+python -m pytest -q              :: 35 tests should pass
 python ingest.py --prices-only   :: 2 years of daily prices for 10 Nifty stocks
 python ingest.py                 :: prices + latest news (uses 10 GNews requests)
 python score.py                  :: score new articles per company, print daily sentiment
 python score.py --audit          :: list articles dropped as irrelevant, and why
 python score.py --rescore        :: recompute all scores after changing the rules
+python coverage.py               :: download historical headlines, report usable news per stock per year
 ```
 
 Data lands in `data/trader.db` (SQLite):
@@ -70,6 +71,17 @@ source-only mentions.
 
 Per (article, company) the score is the average of FinBERT's `positive - negative`
 over the relevant sentences, in [-1, 1]. Daily values are grouped by India date (IST).
+
+## Backtest data (module 3, in progress)
+
+The backtest uses the Times of India headlines archive ("News Headlines of India",
+Harvard Dataverse, doi:10.7910/DVN/DPQMQH, CC0). `coverage.py` downloads it once,
+keeps business-section headlines that pass the same entity rules as the live
+pipeline, stores them in `hist_headlines`, and reports how many usable headlines
+each stock has per year, before any backtest code depends on them.
+
+The archive has a date but no time, so a headline dated D is traded at the next
+session's open. That is conservative, and it rules out lookahead.
 
 ## Known limits
 

@@ -57,6 +57,16 @@ CREATE TABLE IF NOT EXISTS sentiment (
     PRIMARY KEY (article_id, model)
 );
 
+-- Module 3: historical headlines (Times of India archive) that pass the entity rules.
+CREATE TABLE IF NOT EXISTS hist_headlines (
+    date         TEXT NOT NULL,          -- YYYY-MM-DD (publish date, no time available)
+    ticker       TEXT NOT NULL,
+    headline     TEXT NOT NULL,
+    category     TEXT,
+    price_report INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (ticker, date, headline)
+);
+
 -- Module 2.1: sentiment about ONE company, from only the sentences that mention it.
 CREATE TABLE IF NOT EXISTS entity_sentiment (
     article_id  TEXT NOT NULL REFERENCES articles(id),
@@ -244,3 +254,22 @@ def clear_entity_sentiment(db_path: Path, model: str) -> int:
     """Delete entity scores so they are recomputed with the current rules."""
     with connect(db_path) as conn:
         return conn.execute("DELETE FROM entity_sentiment WHERE model = ?", (model,)).rowcount
+
+
+# --- historical headlines (module 3) --------------------------------------------
+
+def save_hist_headlines(db_path: Path, df: pd.DataFrame) -> int:
+    rows = [(r.date, r.ticker, r.headline, r.category, int(r.price_report)) for r in df.itertuples(index=False)]
+    with connect(db_path) as conn:
+        before = conn.total_changes
+        conn.executemany("INSERT OR IGNORE INTO hist_headlines (date, ticker, headline, category, price_report) "
+                         "VALUES (?, ?, ?, ?, ?)", rows)
+        return conn.total_changes - before
+
+
+def load_hist_headlines(db_path: Path, ticker: str | None = None) -> pd.DataFrame:
+    q, params = "SELECT * FROM hist_headlines", ()
+    if ticker:
+        q, params = q + " WHERE ticker = ?", (ticker,)
+    with connect(db_path) as conn:
+        return pd.read_sql_query(q + " ORDER BY date", conn, params=params)
