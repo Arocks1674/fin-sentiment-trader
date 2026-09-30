@@ -40,7 +40,7 @@ def main() -> None:
                 continue
             new = db.upsert_articles(config.DB_PATH, ticker, arts)
             total_new += new
-            log.info("%-12s news:   %d fetched, %d new", ticker, len(arts), new)
+            log.info("%-12s news:   %d fetched, %d new for this stock", ticker, len(arts), new)
             time.sleep(config.REQUEST_PAUSE_SEC)
 
     log.info("Done. %d new articles. Database: %s", total_new, config.DB_PATH)

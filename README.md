@@ -4,16 +4,16 @@ Ingests Indian market news and prices, scores news sentiment with FinBERT,
 backtests a sentiment-driven strategy, and answers questions over the news
 with a retrieval-augmented (RAG) LLM layer. Streamlit front end.
 
-> Status: **Module 1 of 5 complete** (ingestion + storage). This README only
+> Status: **Modules 1-2 of 5 complete** (ingestion, storage, FinBERT sentiment). This README only
 > describes what is built. Later sections are added as modules land.
 
 ## Architecture (planned)
 
 | # | Module | What it does | Status |
 |---|--------|--------------|--------|
-| 1 | Ingestion + storage | GNews REST API + yfinance -> SQLite, deduplicated | Done |
-| 2 | Sentiment | FinBERT scores per article, daily aggregate per ticker | Next |
-| 3 | Backtest | Historical headlines, next-day signals, Sharpe / max drawdown, costs, no lookahead | Planned |
+| 1 | Ingestion + storage | GNews REST API + yfinance -> SQLite, articles deduplicated and linked to every stock they mention | Done |
+| 2 | Sentiment | FinBERT (ProsusAI/finbert) scores per article, daily aggregate per stock in IST | Done |
+| 3 | Backtest | Historical headlines, next-day signals, Sharpe / max drawdown, costs, no lookahead | Next |
 | 4 | RAG | sentence-transformers embeddings, Chroma vector store, LangChain + Gemini, cited answers | Planned |
 | 5 | Front end | Streamlit dashboard: signals, equity curve, "ask the news" | Planned |
 
@@ -32,15 +32,25 @@ Put your GNews key in `.env` (get one at https://gnews.io). `.env` is git-ignore
 ## Run
 
 ```bat
-python -m pytest -q              :: 5 tests should pass
+python -m pytest -q              :: 11 tests should pass
 python ingest.py --prices-only   :: 2 years of daily prices for 10 Nifty stocks
 python ingest.py                 :: prices + latest news (uses 10 GNews requests)
+python score.py                  :: FinBERT-score new articles, print daily sentiment
 ```
 
 Data lands in `data/trader.db` (SQLite):
 
 - `articles`: one row per unique article (primary key = SHA-1 of the URL, so re-running never duplicates)
+- `article_tickers`: which stocks each article is about. One story about two banks is stored once and linked to both.
 - `prices`: one row per ticker per trading day (upsert, so re-running refreshes)
+- `sentiment`: FinBERT probabilities (positive / negative / neutral), label, and score = positive - negative, per article per model
+
+## Sentiment (module 2)
+
+Each article is scored on `title + ". " + description` with ProsusAI/finbert.
+Scores are rolled up per stock per day after converting publish times from UTC to
+India time, so a story published at 20:00 UTC counts for the next Indian date.
+Articles are only scored once per model, so re-running `score.py` is cheap.
 
 ## Known limits
 

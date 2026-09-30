@@ -4,3 +4,7 @@ requests>=2.31
 yfinance>=0.2.40
 python-dotenv>=1.0
 pytest>=8.0
+
+# Module 2: FinBERT sentiment (CPU is fine; ~440 MB model download on first run)
+torch>=2.2
+transformers>=4.40
