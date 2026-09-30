@@ -1,0 +1,6 @@
+# Module 1: ingestion + storage
+pandas>=2.0
+requests>=2.31
+yfinance>=0.2.40
+python-dotenv>=1.0
+pytest>=8.0
