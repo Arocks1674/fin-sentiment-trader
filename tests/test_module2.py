@@ -70,7 +70,7 @@ def test_daily_sentiment_groups_by_india_date():
         {"ticker": "TCS.NS", "published_at": "2026-09-02T05:00:00Z", "score": -0.2, "label": "negative"},
         {"ticker": "TCS.NS", "published_at": "2026-09-01T05:00:00Z", "score": 0.0, "label": "neutral"},
     ])
-    out = daily_sentiment(scored)
+    out = daily_sentiment(scored, dedupe=False)
     assert list(out.date_ist) == ["2026-09-01", "2026-09-02"]
     sep2 = out[out.date_ist == "2026-09-02"].iloc[0]
     assert sep2.n_articles == 2 and sep2.mean_score == pytest.approx(0.2)

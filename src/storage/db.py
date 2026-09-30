@@ -56,6 +56,21 @@ CREATE TABLE IF NOT EXISTS sentiment (
     scored_at  TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY (article_id, model)
 );
+
+-- Module 2.1: sentiment about ONE company, from only the sentences that mention it.
+CREATE TABLE IF NOT EXISTS entity_sentiment (
+    article_id  TEXT NOT NULL REFERENCES articles(id),
+    ticker      TEXT NOT NULL,
+    model       TEXT NOT NULL,
+    reason      TEXT NOT NULL,           -- ok | not_mentioned | source_only
+    n_sentences INTEGER NOT NULL,
+    sentences   TEXT,                    -- the sentences that were scored, joined by ' || '
+    positive REAL, negative REAL, neutral REAL,   -- NULL when reason != ok
+    label    TEXT,
+    score    REAL,
+    scored_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (article_id, ticker, model)
+);
 """
 
 # Backfill links for databases created by module 1 (before article_tickers existed).
@@ -173,3 +188,43 @@ def load_scored_articles(db_path: Path, model: str, ticker: str | None = None) -
         q, params = q + " WHERE t.ticker = ?", (model, ticker)
     with connect(db_path) as conn:
         return pd.read_sql_query(q + " ORDER BY a.published_at", conn, params=params)
+
+
+# --- entity sentiment (module 2.1) ---------------------------------------------
+
+def unscored_pairs(db_path: Path, model: str) -> pd.DataFrame:
+    """(article, ticker) links that have no entity score for this model yet."""
+    q = ("SELECT a.id AS article_id, t.ticker, a.title, a.description "
+         "FROM articles a JOIN article_tickers t ON t.article_id = a.id "
+         "LEFT JOIN entity_sentiment e ON e.article_id = a.id AND e.ticker = t.ticker AND e.model = ? "
+         "WHERE e.article_id IS NULL ORDER BY a.published_at")
+    with connect(db_path) as conn:
+        return pd.read_sql_query(q, conn, params=(model,))
+
+
+def save_entity_sentiment(db_path: Path, model: str, rows: list[dict]) -> int:
+    """rows: article_id, ticker, reason, sentences (list), and for reason == 'ok' the score fields."""
+    data = [(r["article_id"], r["ticker"], model, r["reason"], len(r["sentences"]),
+             " || ".join(r["sentences"]) or None,
+             r.get("positive"), r.get("negative"), r.get("neutral"), r.get("label"), r.get("score"))
+            for r in rows]
+    with connect(db_path) as conn:
+        conn.executemany(
+            "INSERT OR REPLACE INTO entity_sentiment (article_id, ticker, model, reason, n_sentences, "
+            "sentences, positive, negative, neutral, label, score) VALUES (?,?,?,?,?,?,?,?,?,?,?)", data)
+    return len(data)
+
+
+def load_entity_scored(db_path: Path, model: str, ticker: str | None = None,
+                       relevant_only: bool = True) -> pd.DataFrame:
+    q = ("SELECT e.ticker, a.id, a.title, a.source, a.url, a.published_at, e.reason, e.n_sentences, "
+         "e.sentences, e.positive, e.negative, e.neutral, e.label, e.score "
+         "FROM entity_sentiment e JOIN articles a ON a.id = e.article_id WHERE e.model = ?")
+    params: list = [model]
+    if relevant_only:
+        q += " AND e.reason = 'ok'"
+    if ticker:
+        q += " AND e.ticker = ?"
+        params.append(ticker)
+    with connect(db_path) as conn:
+        return pd.read_sql_query(q + " ORDER BY a.published_at", conn, params=tuple(params))
