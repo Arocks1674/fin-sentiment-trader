@@ -23,17 +23,28 @@ def add_ist_date(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def drop_syndicated(scored: pd.DataFrame) -> pd.DataFrame:
-    """Keep the earliest copy of each (ticker, IST date, normalized title)."""
+    """Keep the earliest copy of each story per stock per IST date.
+
+    Two rows are the same story if their normalized titles match OR the exact
+    sentences that were scored match (differently titled copies of one wire story).
+    """
     if scored.empty:
         return scored
-    df = add_ist_date(scored)
+    df = add_ist_date(scored).sort_values("published_at")
     df["_norm"] = df["title"].map(normalize_title)
-    df = df.sort_values("published_at").drop_duplicates(["ticker", "date_ist", "_norm"], keep="first")
+    df = df.drop_duplicates(["ticker", "date_ist", "_norm"], keep="first")
+    if "sentences" in df.columns:
+        df["_sent"] = df["sentences"].fillna("").map(normalize_title)
+        has = df["_sent"] != ""
+        df = pd.concat([df[has].drop_duplicates(["ticker", "date_ist", "_sent"], keep="first"), df[~has]])
+        df = df.sort_values("published_at").drop(columns="_sent")
     return df.drop(columns="_norm")
 
 
-def daily_sentiment(scored: pd.DataFrame, dedupe: bool = True) -> pd.DataFrame:
+def daily_sentiment(scored: pd.DataFrame, dedupe: bool = True, score_col: str = "score") -> pd.DataFrame:
     """scored: rows with ticker, published_at, score, label (and title if dedupe).
+
+    score_col="score_news" excludes price-report sentences (rows with none left are dropped).
 
     Returns one row per (ticker, date_ist) with:
       n_articles, mean_score, pos_share, neg_share
@@ -43,10 +54,13 @@ def daily_sentiment(scored: pd.DataFrame, dedupe: bool = True) -> pd.DataFrame:
         return pd.DataFrame(columns=cols)
 
     df = drop_syndicated(scored) if dedupe else add_ist_date(scored)
+    df = df.dropna(subset=[score_col])
+    if df.empty:
+        return pd.DataFrame(columns=cols)
     g = df.groupby(["ticker", "date_ist"])
     out = pd.DataFrame({
         "n_articles": g.size(),
-        "mean_score": g["score"].mean(),
+        "mean_score": g[score_col].mean(),
         "pos_share": g["label"].apply(lambda s: (s == "positive").mean()),
         "neg_share": g["label"].apply(lambda s: (s == "negative").mean()),
     }).reset_index()

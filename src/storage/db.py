@@ -68,6 +68,8 @@ CREATE TABLE IF NOT EXISTS entity_sentiment (
     positive REAL, negative REAL, neutral REAL,   -- NULL when reason != ok
     label    TEXT,
     score    REAL,
+    score_news REAL,                     -- same, excluding price-report sentences (NULL if none left)
+    n_price_sentences INTEGER NOT NULL DEFAULT 0,
     scored_at TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY (article_id, ticker, model)
 );
@@ -98,6 +100,12 @@ def init_db(db_path: Path) -> None:
     with connect(db_path) as conn:
         conn.executescript(SCHEMA)
         conn.executescript(MIGRATION)
+        # Module 2.2 columns, for databases created by module 2.1.
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(entity_sentiment)")}
+        if "score_news" not in cols:
+            conn.execute("ALTER TABLE entity_sentiment ADD COLUMN score_news REAL")
+        if "n_price_sentences" not in cols:
+            conn.execute("ALTER TABLE entity_sentiment ADD COLUMN n_price_sentences INTEGER NOT NULL DEFAULT 0")
 
 
 def upsert_articles(db_path: Path, ticker: str, articles: list[dict]) -> int:
@@ -206,19 +214,21 @@ def save_entity_sentiment(db_path: Path, model: str, rows: list[dict]) -> int:
     """rows: article_id, ticker, reason, sentences (list), and for reason == 'ok' the score fields."""
     data = [(r["article_id"], r["ticker"], model, r["reason"], len(r["sentences"]),
              " || ".join(r["sentences"]) or None,
-             r.get("positive"), r.get("negative"), r.get("neutral"), r.get("label"), r.get("score"))
+             r.get("positive"), r.get("negative"), r.get("neutral"), r.get("label"), r.get("score"),
+             r.get("score_news"), int(r.get("n_price_sentences", 0)))
             for r in rows]
     with connect(db_path) as conn:
         conn.executemany(
             "INSERT OR REPLACE INTO entity_sentiment (article_id, ticker, model, reason, n_sentences, "
-            "sentences, positive, negative, neutral, label, score) VALUES (?,?,?,?,?,?,?,?,?,?,?)", data)
+            "sentences, positive, negative, neutral, label, score, score_news, n_price_sentences) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", data)
     return len(data)
 
 
 def load_entity_scored(db_path: Path, model: str, ticker: str | None = None,
                        relevant_only: bool = True) -> pd.DataFrame:
     q = ("SELECT e.ticker, a.id, a.title, a.source, a.url, a.published_at, e.reason, e.n_sentences, "
-         "e.sentences, e.positive, e.negative, e.neutral, e.label, e.score "
+         "e.sentences, e.positive, e.negative, e.neutral, e.label, e.score, e.score_news, e.n_price_sentences "
          "FROM entity_sentiment e JOIN articles a ON a.id = e.article_id WHERE e.model = ?")
     params: list = [model]
     if relevant_only:
@@ -228,3 +238,9 @@ def load_entity_scored(db_path: Path, model: str, ticker: str | None = None,
         params.append(ticker)
     with connect(db_path) as conn:
         return pd.read_sql_query(q + " ORDER BY a.published_at", conn, params=tuple(params))
+
+
+def clear_entity_sentiment(db_path: Path, model: str) -> int:
+    """Delete entity scores so they are recomputed with the current rules."""
+    with connect(db_path) as conn:
+        return conn.execute("DELETE FROM entity_sentiment WHERE model = ?", (model,)).rowcount

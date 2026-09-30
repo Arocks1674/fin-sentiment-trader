@@ -79,6 +79,7 @@ def _source_patterns(name_re: str) -> list[re.Pattern]:
         re.compile(rf":\s*(?:{name_re})\s*[.!]?\s*$"),                                 # "...growth: ICICI Bank"
         re.compile(rf"(?i:according to|as per|said|says|report by|research by|analysts at|economists at)\s+(?:{name_re})"),
         re.compile(rf"(?:{name_re})\s+(?i:economists?|research|securities research|analysts?|global markets)\b"),
+        re.compile(rf"(?i:economist|analyst|strategist|head of research|chief investment officer|fund manager)\s*,\s*(?:{name_re})"),
     ]
 
 
@@ -94,10 +95,32 @@ def _compiled(ticker: str):
     return _COMPILED[ticker]
 
 
+# A company named inside a comma list of 4+ names ("Stocks to watch: A, B, C, D...") is a
+# passing mention: the sentence's tone is not about any one of them.
+_LIST = re.compile(r"(?:[A-Z][\w&'.-]*(?:\s+[A-Z&][\w&'.-]*)*\s*,\s*){3,}")
+
+# Sentences that REPORT a price move. They describe returns that already happened, so
+# feeding them into a trading signal partly echoes past prices (a form of lookahead).
+PRICE_REPORT = re.compile(
+    r"(?i)\b(?:fell|falls|fallen|rose|rises|risen|gained|gains|slipped|slips|jumped|jumps|surged|surges|declined|"
+    r"dropped|drops|climbed|tumbled|plunged|crashed|rallied|laggards|gainers|losers|top losers|"
+    r"52[- ]week (?:high|low)s?|trading (?:lower|higher)|upper circuit|lower circuit|"
+    r"(?:up|down) \d+(?:\.\d+)?\s*%)")
+
+
+def is_list_mention(sentence: str) -> bool:
+    return bool(_LIST.search(sentence))
+
+
+def is_price_report(sentence: str) -> bool:
+    return bool(PRICE_REPORT.search(sentence))
+
+
 @dataclass
 class Relevance:
     sentences: list[str]          # sentences about the company (what gets scored)
-    reason: str                   # "ok" | "not_mentioned" | "source_only"
+    reason: str                   # "ok" | "not_mentioned" | "source_only" | "list_only"
+    price_report: list[bool] = field(default_factory=list)   # per kept sentence
 
 
 def relevant_sentences(ticker: str, title: str, description: str | None) -> Relevance:
@@ -107,7 +130,7 @@ def relevant_sentences(ticker: str, title: str, description: str | None) -> Rele
     name, sources, excl = _compiled(ticker)
 
     sentences = split_sentences(title) + split_sentences(description or "")
-    keep, source_hits = [], 0
+    keep, source_hits, list_hits = [], 0, 0
     for s in sentences:
         cleaned = excl.sub(" ", s) if excl else s
         if not name.search(cleaned):
@@ -121,11 +144,16 @@ def relevant_sentences(ticker: str, title: str, description: str | None) -> Rele
             if not name.search(stripped):
                 source_hits += 1
                 continue
+        if is_list_mention(cleaned):
+            list_hits += 1
+            continue
         keep.append(s)
 
     if keep:
-        return Relevance(keep, "ok")
-    return Relevance([], "source_only" if source_hits else "not_mentioned")
+        return Relevance(keep, "ok", [is_price_report(s) for s in keep])
+    if source_hits:
+        return Relevance([], "source_only")
+    return Relevance([], "list_only" if list_hits else "not_mentioned")
 
 
 def normalize_title(title: str) -> str:
