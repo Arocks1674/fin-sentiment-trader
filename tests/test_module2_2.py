@@ -23,7 +23,7 @@ def test_list_mentions_are_dropped():
 
 
 def test_two_company_sentence_is_not_a_list():
-    rel = relevant_sentences("RELIANCE.NS", "Reliance, Nayara restrict fuel sales as crude hits $107", "")
+    rel = relevant_sentences("RELIANCE.NS", "RIL, Nayara restrict fuel sales as crude hits $107", "")
     assert rel.reason == "ok"
 
 
@@ -71,3 +71,19 @@ def test_fundamental_moves_are_not_price_reports():
     assert not is_price_report("ICICI Bank net interest income jumps 20%")
     assert is_price_report("HDFC Bank shares dip as Q2 results near")
     assert is_price_report("ITC market cap slips below Rs 3.4 lakh crore")
+
+
+def test_times_of_india_semicolon_lists():
+    assert relevant_sentences("TCS.NS", "New Zealand in talks with TCS; Wipro; Infosys; HCL", "").reason == "list_only"
+
+
+def test_executive_quote_is_source():
+    assert relevant_sentences("INFY.NS", "Nobody cares for India: Infosys chairman", "").reason == "source_only"
+    assert relevant_sentences("ICICIBANK.NS", "Interest rates to fall soon: ICICI Bank CEO", "").reason == "source_only"
+    assert relevant_sentences("INFY.NS", "Infosys CEO resigns amid board dispute", "").reason == "ok"
+
+
+def test_bare_reliance_is_ambiguous():
+    assert relevant_sentences("RELIANCE.NS", "Reliance Infocomm cuts tariffs", "").reason == "not_mentioned"
+    assert relevant_sentences("RELIANCE.NS", "Reliance MF launches new scheme", "").reason == "not_mentioned"
+    assert relevant_sentences("RELIANCE.NS", "RIL completes $7 billion deal with BP", "").reason == "ok"

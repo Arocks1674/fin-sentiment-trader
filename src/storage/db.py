@@ -67,6 +67,13 @@ CREATE TABLE IF NOT EXISTS hist_headlines (
     PRIMARY KEY (ticker, date, headline)
 );
 
+CREATE TABLE IF NOT EXISTS hist_sentiment (
+    ticker TEXT NOT NULL, date TEXT NOT NULL, headline TEXT NOT NULL, model TEXT NOT NULL,
+    positive REAL NOT NULL, negative REAL NOT NULL, neutral REAL NOT NULL,
+    label TEXT NOT NULL, score REAL NOT NULL,
+    PRIMARY KEY (ticker, date, headline, model)
+);
+
 -- Module 2.1: sentiment about ONE company, from only the sentences that mention it.
 CREATE TABLE IF NOT EXISTS entity_sentiment (
     article_id  TEXT NOT NULL REFERENCES articles(id),
@@ -273,3 +280,33 @@ def load_hist_headlines(db_path: Path, ticker: str | None = None) -> pd.DataFram
         q, params = q + " WHERE ticker = ?", (ticker,)
     with connect(db_path) as conn:
         return pd.read_sql_query(q + " ORDER BY date", conn, params=params)
+
+
+def clear_hist_headlines(db_path: Path) -> None:
+    """Re-extraction replaces the table (rules may have changed); cached scores are kept by headline."""
+    with connect(db_path) as conn:
+        conn.execute("DELETE FROM hist_headlines")
+
+
+def unscored_hist(db_path: Path, model: str) -> pd.DataFrame:
+    q = ("SELECT h.ticker, h.date, h.headline FROM hist_headlines h LEFT JOIN hist_sentiment s "
+         "ON s.ticker = h.ticker AND s.date = h.date AND s.headline = h.headline AND s.model = ? "
+         "WHERE s.ticker IS NULL")
+    with connect(db_path) as conn:
+        return pd.read_sql_query(q, conn, params=(model,))
+
+
+def save_hist_sentiment(db_path: Path, model: str, df: pd.DataFrame) -> int:
+    rows = [(r.ticker, r.date, r.headline, model, r.positive, r.negative, r.neutral, r.label, r.score)
+            for r in df.itertuples(index=False)]
+    with connect(db_path) as conn:
+        conn.executemany("INSERT OR REPLACE INTO hist_sentiment VALUES (?,?,?,?,?,?,?,?,?)", rows)
+    return len(rows)
+
+
+def load_hist_scored(db_path: Path, model: str) -> pd.DataFrame:
+    q = ("SELECT h.ticker, h.date, h.headline, h.price_report, s.score, s.label "
+         "FROM hist_headlines h JOIN hist_sentiment s ON s.ticker = h.ticker AND s.date = h.date "
+         "AND s.headline = h.headline AND s.model = ? ORDER BY h.date")
+    with connect(db_path) as conn:
+        return pd.read_sql_query(q, conn, params=(model,))

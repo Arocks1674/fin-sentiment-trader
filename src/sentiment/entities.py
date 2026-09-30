@@ -27,7 +27,9 @@ class Entity:
 
 
 ENTITIES: dict[str, Entity] = {
-    "RELIANCE.NS": Entity(("Reliance Industries", "Reliance Jio", "Jio Platforms", "Reliance Retail", "Reliance"),
+    # Bare "Reliance" is NOT an alias: in the historical archive 30% of bare-"Reliance" headlines were
+    # Anil Ambani group companies (Reliance Infocomm, Reliance MF, Reliance Capital...).
+    "RELIANCE.NS": Entity(("Reliance Industries", "Reliance Jio", "Jio Platforms", "Reliance Retail"),
                           ("RIL",),
                           ("Reliance Power", "Reliance Infrastructure", "Reliance Infra", "Reliance Capital",
                            "Reliance Communications", "Reliance Home Finance", "Reliance General Insurance",
@@ -80,6 +82,8 @@ def _source_patterns(name_re: str) -> list[re.Pattern]:
         re.compile(rf"(?i:according to|as per|said|says|report by|research by|analysts at|economists at)\s+(?:{name_re})"),
         re.compile(rf"(?:{name_re})\s+(?i:economists?|research|securities research|analysts?|global markets)\b"),
         re.compile(rf"(?i:economist|analyst|strategist|head of research|chief investment officer|fund manager)\s*,\s*(?:{name_re})"),
+        # "Nobody cares for India: Infosys chairman" -> an executive's quote, not company news
+        re.compile(rf":\s*(?:{name_re})\s+(?i:chief executive|chief|ceo|cfo|chairman|chairperson|md|boss|head|founder|president|executive)\b[^:]*$"),
     ]
 
 
@@ -97,7 +101,7 @@ def _compiled(ticker: str):
 
 # A company named inside a comma list of 4+ names ("Stocks to watch: A, B, C, D...") is a
 # passing mention: the sentence's tone is not about any one of them.
-_LIST = re.compile(r"(?:[A-Z][\w&'.-]*(?:\s+[A-Z&][\w&'.-]*)*\s*,\s*){3,}")
+_LIST = re.compile(r"(?:[A-Z][\w&'.-]*(?:\s+[A-Z&][\w&'.-]*)*\s*[,;]\s*){3,}")   # ; : Times of India style
 
 # Sentences that REPORT a price move. They describe returns that already happened, so
 # feeding them into a trading signal partly echoes past prices (a form of lookahead).

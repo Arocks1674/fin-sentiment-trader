@@ -8,3 +8,7 @@ pytest>=8.0
 # Module 2: FinBERT sentiment (CPU is fine; ~440 MB model download on first run)
 torch>=2.2
 transformers>=4.40
+
+# Module 3: backtest report
+matplotlib>=3.8
+tabulate>=0.9

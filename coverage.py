@@ -36,6 +36,7 @@ def main() -> None:
     log.info("Extracted %d headlines in %.0fs", len(df), time.time() - t0)
 
     db.init_db(config.DB_PATH)
+    db.clear_hist_headlines(config.DB_PATH)
     db.save_hist_headlines(config.DB_PATH, df)
 
     pd.set_option("display.width", 250)
