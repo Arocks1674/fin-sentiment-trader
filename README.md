@@ -4,10 +4,9 @@ Ingests Indian market news and prices, scores news sentiment with FinBERT,
 backtests a sentiment-driven strategy, and answers questions over the news
 with a retrieval-augmented (RAG) LLM layer. Streamlit front end.
 
-> Status: **Modules 1-4 of 5 complete** (ingestion, storage, entity-targeted FinBERT sentiment). This README only
-> describes what is built. Later sections are added as modules land.
+> Status: **all 5 modules complete.** This README only describes what is built.
 
-## Architecture (planned)
+## Architecture
 
 | # | Module | What it does | Status |
 |---|--------|--------------|--------|
@@ -15,7 +14,7 @@ with a retrieval-augmented (RAG) LLM layer. Streamlit front end.
 | 2 | Sentiment | Entity-targeted FinBERT: scores only sentences about each company, drops source-only mentions and syndicated copies, daily aggregate in IST | Done |
 | 3 | Backtest | Event-driven, pooled across stocks; next-session entry; abnormal returns, Sharpe, max drawdown, costs; in/out-of-sample split | Done |
 | 4 | RAG | sentence-transformers embeddings, Chroma vector store, LangChain + Gemini; stock- and date-filtered retrieval, cited answers, citation check | Done |
-| 5 | Front end | Streamlit dashboard: signals, equity curve, "ask the news" | Next |
+| 5 | Front end | Streamlit + Altair dashboard: live sentiment per stock, event study and equity curves, "ask the news" with sources | Done |
 
 ## Setup (Windows, Command Prompt)
 
@@ -32,7 +31,7 @@ Put your GNews key (https://gnews.io) and Gemini key (https://aistudio.google.co
 ## Run
 
 ```bat
-python -m pytest -q              :: 55 tests should pass
+python -m pytest -q              :: 65 tests should pass
 python ingest.py --prices-only   :: 2 years of daily prices for 10 Nifty stocks
 python ingest.py                 :: prices + latest news (uses 10 GNews requests)
 python score.py                  :: score new articles per company, print daily sentiment
@@ -44,6 +43,7 @@ python backtest.py               :: event study + strategy vs buy-and-hold -> re
 python rag.py index              :: embed stored news into the Chroma vector store
 python rag.py ask "Why did Infosys shares fall?"   :: cited answer from the stored news
 python rag.py models             :: list Gemini models your key can use
+streamlit run app.py             :: dashboard at http://localhost:8501
 ```
 
 Data lands in `data/trader.db` (SQLite):
@@ -153,12 +153,29 @@ happen before the move, which is what the live GNews pipeline collects going for
 
 Indexing is incremental: re-running `rag.py index` only embeds new stories.
 
+## Dashboard (module 5)
+
+`streamlit run app.py` opens three tabs:
+
+- **Live sentiment.** Pick a stock and a window: closing price on top, daily FinBERT
+  sentiment below on the same date axis (two charts, not two y-axes), then the scored
+  articles with the exact sentences that were scored and a link to each source.
+  Times are shown in IST and syndicated copies are collapsed.
+- **Backtest.** Toggle the holding period (1 or 5 days) and price-report exclusion. Shows
+  abnormal returns 5 days before vs after the headline, and growth of 1 rupee for the news
+  strategy vs equal-weight buy-and-hold (log scale, after costs). Same engine as `backtest.py`.
+- **Ask the news.** The module 4 RAG pipeline with a source table; disabled with a message
+  if `GEMINI_API_KEY` is missing.
+
+Data shaping and charts live in `src/app/views.py` so they are unit-tested; an AppTest
+smoke test checks the app starts on an empty database and tells the user what to run.
+
 ## Known limits
 
 - The score is FinBERT's confidence about tone, not the size of the news: a 0.55% dip can score -0.97.
 - A passing mention still counts: "HSBC competes with ICICI Bank" counts for ICICI, and a fire in a
   building that also houses a Kotak branch scores -0.84 for Kotak. Separating subject from
-  passing mention needs more than rules; an LLM relevance check is planned for module 4.
+  passing mention needs more than rules (e.g. an LLM relevance check); not built.
 - GNews free tier returns only recent articles (about 30 days) and ~100 requests/day,
   so it feeds the live dashboard; the backtest uses the historical archive instead.
 - The historical archive is one general newspaper, headlines only, ending mid-2020.

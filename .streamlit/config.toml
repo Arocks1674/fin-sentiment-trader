@@ -1,0 +1,8 @@
+[server]
+# Streamlit's file watcher walks every imported module; transformers lazily imports
+# vision models that need torchvision and logs a traceback for each. We don't need
+# auto-reload, so turn the watcher off.
+fileWatcherType = "none"
+
+[logger]
+level = "error"
