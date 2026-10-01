@@ -4,7 +4,7 @@ Ingests Indian market news and prices, scores news sentiment with FinBERT,
 backtests a sentiment-driven strategy, and answers questions over the news
 with a retrieval-augmented (RAG) LLM layer. Streamlit front end.
 
-> Status: **Modules 1-3 of 5 complete** (ingestion, storage, entity-targeted FinBERT sentiment). This README only
+> Status: **Modules 1-4 of 5 complete** (ingestion, storage, entity-targeted FinBERT sentiment). This README only
 > describes what is built. Later sections are added as modules land.
 
 ## Architecture (planned)
@@ -14,8 +14,8 @@ with a retrieval-augmented (RAG) LLM layer. Streamlit front end.
 | 1 | Ingestion + storage | GNews REST API + yfinance -> SQLite, articles deduplicated and linked to every stock they mention | Done |
 | 2 | Sentiment | Entity-targeted FinBERT: scores only sentences about each company, drops source-only mentions and syndicated copies, daily aggregate in IST | Done |
 | 3 | Backtest | Event-driven, pooled across stocks; next-session entry; abnormal returns, Sharpe, max drawdown, costs; in/out-of-sample split | Done |
-| 4 | RAG | sentence-transformers embeddings, Chroma vector store, LangChain + Gemini, cited answers | Next |
-| 5 | Front end | Streamlit dashboard: signals, equity curve, "ask the news" | Planned |
+| 4 | RAG | sentence-transformers embeddings, Chroma vector store, LangChain + Gemini; stock- and date-filtered retrieval, cited answers, citation check | Done |
+| 5 | Front end | Streamlit dashboard: signals, equity curve, "ask the news" | Next |
 
 ## Setup (Windows, Command Prompt)
 
@@ -27,12 +27,12 @@ pip install -r requirements.txt
 copy .env.example .env
 notepad .env
 ```
-Put your GNews key in `.env` (get one at https://gnews.io). `.env` is git-ignored.
+Put your GNews key (https://gnews.io) and Gemini key (https://aistudio.google.com) in `.env`. `.env` is git-ignored.
 
 ## Run
 
 ```bat
-python -m pytest -q              :: 48 tests should pass
+python -m pytest -q              :: 55 tests should pass
 python ingest.py --prices-only   :: 2 years of daily prices for 10 Nifty stocks
 python ingest.py                 :: prices + latest news (uses 10 GNews requests)
 python score.py                  :: score new articles per company, print daily sentiment
@@ -41,6 +41,9 @@ python score.py --rescore        :: recompute all scores after changing the rule
 python coverage.py               :: download historical headlines, report usable news per stock per year
 python ingest.py --prices-only --start 2001-01-01   :: price history for the backtest
 python backtest.py               :: event study + strategy vs buy-and-hold -> reports/results.md, reports/equity.png
+python rag.py index              :: embed stored news into the Chroma vector store
+python rag.py ask "Why did Infosys shares fall?"   :: cited answer from the stored news
+python rag.py models             :: list Gemini models your key can use
 ```
 
 Data lands in `data/trader.db` (SQLite):
@@ -131,6 +134,25 @@ Full tables: `reports/results.md`; equity curves: `reports/equity.png`.
 **What would be needed for an edge:** timestamped news (minutes, not dates) so trades can
 happen before the move, which is what the live GNews pipeline collects going forward.
 
+## Ask the news (module 4, RAG)
+
+`rag.py ask` answers questions using only the stored news, with citations.
+
+1. **Corpus.** One document per story: live GNews articles (title + description, source,
+   URL) and the 2001-2020 archive headlines. Each document carries one boolean flag per
+   stock it is about, plus its date as an integer, so Chroma can filter on both.
+2. **Retrieval.** The question is checked against the same entity rules as the sentiment
+   pipeline ("Why did Infosys fall?" -> INFY; "ICICI Prudential" is not ICICI Bank). Search
+   is restricted to those stocks and to an optional `--since/--until` range, then the top
+   `k` items by cosine similarity of local `all-MiniLM-L6-v2` embeddings are returned.
+3. **Generation.** Gemini (LangChain `ChatGoogleGenerativeAI`, temperature 0) gets the
+   numbered items and must cite one per claim, use no outside knowledge, and say what is
+   missing when the items do not answer the question.
+4. **Guardrails.** No matching news means no LLM call ("no news found"). Citation numbers
+   that were never supplied are flagged in the output.
+
+Indexing is incremental: re-running `rag.py index` only embeds new stories.
+
 ## Known limits
 
 - The score is FinBERT's confidence about tone, not the size of the news: a 0.55% dip can score -0.97.
@@ -143,5 +165,8 @@ happen before the move, which is what the live GNews pipeline collects going for
 - Survivorship bias: the 10 stocks are today's large caps, chosen with hindsight, so
   buy-and-hold looks unusually strong (about 31% a year in 2001-2014).
 - Some corporate actions (e.g. L&T's 2004 cement demerger) may still be unadjusted in Yahoo data.
+- RAG answers can only be as current and complete as the stored news (about 100 live articles
+  plus archive headlines); a question about a bare "Reliance" searches all news, because
+  bare "Reliance" is ambiguous (see backtest data notes).
 - yfinance is an unofficial Yahoo wrapper; if it prints "possibly delisted", it is
   usually a network or rate-limit issue, not a delisting.
