@@ -16,6 +16,7 @@ Needs prices back to 2001:  python ingest.py --prices-only --start 2001-01-01
 Usage:
     python backtest.py
     python backtest.py --cost 0.004 --threshold 0.5
+    python backtest.py --placebo      # permutation test: is the sentiment spread bigger than chance?
 """
 import argparse
 import logging
@@ -26,7 +27,8 @@ import pandas as pd
 import config
 from src.backtest import metrics
 from src.backtest.engine import (Config, benchmark_returns, daily_signal, event_study, events,
-                                 portfolio_returns, price_panels)
+                                 portfolio_returns, price_panels, spread_permutation_test,
+                                 trim_to_events)
 from src.ingest.prices import clean_prices
 from src.sentiment.finbert import MODEL_NAME, FinBertScorer
 from src.storage import db
@@ -49,17 +51,17 @@ def score_history() -> None:
 def run(cfg: Config, scored: pd.DataFrame, opens, closes, rf: float) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series]:
     sig = daily_signal(scored, cfg.exclude_price_reports)
     ev = events(sig, opens, closes, cfg.hold)
-    strat = portfolio_returns(ev, opens, closes, cfg, cash_return=rf / metrics.TRADING_DAYS)
-    bench = benchmark_returns(closes)
+    strat = trim_to_events(portfolio_returns(ev, opens, closes, cfg, cash_return=rf / metrics.TRADING_DAYS), ev)
+    bench = trim_to_events(benchmark_returns(closes), ev)
     rows = []
-    for label, lo, hi in [("2001-2014 (in-sample)", None, SPLIT), ("2015-2020 (out-of-sample)", SPLIT, None),
+    for label, lo, hi in [("2001-2014 (in-sample)", None, SPLIT), ("2015-mid 2020 (out-of-sample)", SPLIT, None),
                           ("full period", None, None)]:
         s, b = strat.loc[lo:hi], bench.loc[lo:hi]
         if hi:
             s, b = s[s.index < hi], b[b.index < hi]
         rows.append({"period": label, "strategy": "news long-only", **metrics.summary(s, rf)})
         rows.append({"period": label, "strategy": "buy & hold (EW)", **metrics.summary(b, rf)})
-    return event_study(ev, cfg.threshold), pd.DataFrame(rows), strat
+    return event_study(ev, cfg.threshold), pd.DataFrame(rows), strat, bench
 
 
 def main() -> None:
@@ -67,6 +69,8 @@ def main() -> None:
     p.add_argument("--threshold", type=float, default=0.3)
     p.add_argument("--cost", type=float, default=0.0025, help="round-trip cost, 0.0025 = 0.25%%")
     p.add_argument("--rf", type=float, default=0.065, help="annual risk-free rate for Sharpe")
+    p.add_argument("--placebo", action="store_true",
+                   help="shuffle sentiment scores across headlines (seeded) to check the test finds nothing")
     args = p.parse_args()
 
     db.init_db(config.DB_PATH)
@@ -83,6 +87,8 @@ def main() -> None:
     opens, closes = price_panels(prices)
     scored = scored[scored["date"] >= opens.index.min()]
     REPORTS.mkdir(exist_ok=True)
+    if args.placebo:
+        return placebo(scored, opens, closes, args)
     pd.set_option("display.width", 200)
     fmt = lambda x: f"{x:.2f}"
     md = ["# Backtest results\n", f"Headlines: {len(scored)}  |  threshold {args.threshold}  |  "
@@ -94,7 +100,7 @@ def main() -> None:
     for hold in (1, 5):
         for excl in (False, True):
             cfg = Config(hold=hold, threshold=args.threshold, cost=args.cost, exclude_price_reports=excl)
-            study, perf, strat = run(cfg, scored, opens, closes, args.rf)
+            study, perf, strat, bench = run(cfg, scored, opens, closes, args.rf)
             title = f"Hold {hold} day(s), {'excluding' if excl else 'including'} price-report headlines"
             print(f"\n=== {title} ===\n\nEvent study (abnormal return after the news):")
             print(study.to_string(float_format=fmt))
@@ -105,13 +111,14 @@ def main() -> None:
                    perf.to_markdown(index=False, floatfmt=".2f"), "\n"]
             curves[title] = (1 + strat).cumprod()
 
-    curves["Buy & hold, equal-weight 10 stocks"] = (1 + benchmark_returns(closes)).cumprod()
+    curves["Buy & hold, equal-weight 10 stocks"] = (1 + bench).cumprod()
     (REPORTS / "results.md").write_text("\n".join(md), encoding="utf-8")
     try:
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-        ax = pd.DataFrame(curves).set_index(pd.to_datetime(list(closes.index))).plot(
+        frame = pd.DataFrame(curves)
+        ax = frame.set_index(pd.to_datetime(list(frame.index))).plot(
             figsize=(11, 5), logy=True, title="Growth of 1 rupee (log scale), costs included")
         ax.axvline(pd.Timestamp(SPLIT), color="grey", ls="--", lw=1)
         ax.set_xlabel("")
@@ -120,6 +127,22 @@ def main() -> None:
     except ImportError:
         log.warning("matplotlib not installed; skipping chart")
     log.info("Saved %s and %s", REPORTS / "results.md", REPORTS / "equity.png")
+
+
+def placebo(scored: pd.DataFrame, opens, closes, args) -> None:
+    """Permutation test: does sentiment sort returns better than shuffled scores?"""
+    md = ["# Placebo: permutation test of the positive-minus-negative spread\n",
+          f"Scores shuffled across events 2,000 times. Threshold {args.threshold}.\n",
+          "`all_news_*` = mean abnormal return over every news day, whatever its tone.\n"]
+    for hold in (1, 5):
+        for excl in (False, True):
+            ev = events(daily_signal(scored, excl), opens, closes, hold)
+            res = spread_permutation_test(ev, args.threshold)
+            title = f"Hold {hold} day(s), {'excluding' if excl else 'including'} price-report headlines"
+            print(f"\n=== {title} ===\n" + res.to_string(float_format=lambda x: f"{x:.3f}"))
+            md += [f"\n## {title}\n", res.to_markdown(floatfmt=".3f"), "\n"]
+    (REPORTS / "placebo.md").write_text("\n".join(md), encoding="utf-8")
+    log.info("Saved %s", REPORTS / "placebo.md")
 
 
 if __name__ == "__main__":

@@ -9,7 +9,7 @@ import altair as alt
 import pandas as pd
 
 from src.backtest.engine import (Config, benchmark_returns, daily_signal, event_study, events,
-                                 portfolio_returns, price_panels)
+                                 portfolio_returns, price_panels, trim_to_events)
 from src.ingest.prices import clean_prices
 from src.sentiment.aggregate import daily_sentiment, drop_syndicated
 
@@ -77,12 +77,11 @@ def backtest_tables(hist_scored: pd.DataFrame, prices: pd.DataFrame, hold: int =
         study.assign(window=f"{hold} days after", value=study["mean_abn_ret_%"], t=study["t_stat"]),
     ])[["news", "window", "value", "t", "events"]]
 
-    strat = portfolio_returns(ev, opens, closes, cfg, cash_return=rf / 252)
-    bench = benchmark_returns(closes)
-    end = hist_scored["date"].max()
+    strat = trim_to_events(portfolio_returns(ev, opens, closes, cfg, cash_return=rf / 252), ev)
+    bench = trim_to_events(benchmark_returns(closes), ev)
     curves = pd.DataFrame({"News strategy": (1 + strat).cumprod(),
                            "Buy & hold (equal-weight)": (1 + bench).cumprod()})
-    curves = curves[curves.index <= end].reset_index(names="date").melt("date", var_name="series", value_name="growth")
+    curves = curves.reset_index(names="date").melt("date", var_name="series", value_name="growth")
     return long, curves
 
 

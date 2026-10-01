@@ -75,3 +75,23 @@ def test_metrics():
     r = pd.Series([0.1, -0.5, 0.2])
     assert metrics.max_drawdown(r) == pytest.approx(-0.5)
     assert np.isnan(metrics.sharpe(pd.Series([0.0, 0.0])))
+
+
+def test_returns_are_trimmed_to_the_news_period():
+    """Prices run past the last headline; those days must not count toward performance."""
+    from src.backtest.engine import trim_to_events
+    r = pd.Series(0.01, index=["2015-01-01", "2015-01-02", "2015-01-05", "2015-01-06", "2015-01-07"])
+    ev = pd.DataFrame({"entry": ["2015-01-02"], "exit": ["2015-01-05"]})
+    assert list(trim_to_events(r, ev).index) == ["2015-01-02", "2015-01-05"]
+    assert trim_to_events(r, ev.iloc[0:0]).empty
+
+
+def test_permutation_test_separates_signal_from_chance():
+    from src.backtest.engine import spread_permutation_test
+    rng = np.random.default_rng(1)
+    score = rng.uniform(-1, 1, 600)
+    noise = rng.normal(0, 0.01, 600)
+    ev = pd.DataFrame({"score": score, "pre_abn_ret": noise + 0.01 * score, "abn_ret": noise})
+    res = spread_permutation_test(ev, threshold=0.3, n=500)
+    assert res.loc["5 days before", "p_value"] < 0.01       # returns depend on the score
+    assert res.loc["after entry", "p_value"] > 0.05         # pure noise

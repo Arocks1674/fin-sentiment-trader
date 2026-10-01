@@ -1,189 +1,143 @@
-# Financial News Sentiment Trader (Nifty 50)
+# Does financial news predict Indian stock returns?
 
-Ingests Indian market news and prices, scores news sentiment with FinBERT,
-backtests a sentiment-driven strategy, and answers questions over the news
-with a retrieval-augmented (RAG) LLM layer. Streamlit front end.
+[![tests](https://github.com/Arocks1674/fin-sentiment-trader/actions/workflows/tests.yml/badge.svg)](https://github.com/Arocks1674/fin-sentiment-trader/actions/workflows/tests.yml)
+![Python 3.11](https://img.shields.io/badge/python-3.11-blue)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-> Status: **all 5 modules complete.** This README only describes what is built.
+A research pipeline for 10 Nifty 50 stocks: it collects news and prices, scores
+**company-specific** sentiment with FinBERT, tests 20 years of headlines in an event-study
+backtest, answers questions over the news with a cited RAG layer, and shows it all in a
+Streamlit dashboard.
 
-## Architecture
+**Finding: newspaper sentiment arrives after the price has moved.** Stocks rise in the
+5 days *before* a positive headline and fall before a negative one, so trading after
+publication does not beat buy-and-hold.
 
-| # | Module | What it does | Status |
-|---|--------|--------------|--------|
-| 1 | Ingestion + storage | GNews REST API + yfinance -> SQLite, articles deduplicated and linked to every stock they mention | Done |
-| 2 | Sentiment | Entity-targeted FinBERT: scores only sentences about each company, drops source-only mentions and syndicated copies, daily aggregate in IST | Done |
-| 3 | Backtest | Event-driven, pooled across stocks; next-session entry; abnormal returns, Sharpe, max drawdown, costs; in/out-of-sample split | Done |
-| 4 | RAG | sentence-transformers embeddings, Chroma vector store, LangChain + Gemini; stock- and date-filtered retrieval, cited answers, citation check | Done |
-| 5 | Front end | Streamlit + Altair dashboard: live sentiment per stock, event study and equity curves, "ask the news" with sources | Done |
+| News (4,388 Times of India headlines, 2001 to mid-2020) | 5 days before the headline | 5 days after entry |
+|---|---|---|
+| Positive | **+0.50%** (t = 4.2) | −0.44% (t = −4.5) |
+| Negative | **−0.86%** (t = −4.9) | +0.10% (t = 0.7, not significant) |
+| Positive minus negative | **+1.36%** (placebo range ±0.40%, p < 0.001) | −0.54% (placebo range ±0.34%, p = 0.003) |
 
-## Setup (Windows, Command Prompt)
+<sub>Abnormal return = stock return minus the equal-weight average of the 10 stocks. Entry at the next
+session's open; price-report headlines included. Placebo = the same test with sentiment scores shuffled
+across events 2,000 times (`python backtest.py --placebo`).</sub>
+
+Part of the post-headline drop is not about tone: **every** news day is followed by about −0.18% over
+5 days (t = −2.9), whatever the sentiment. The spread against shuffled scores separates the two.
+
+![Backtest tab: abnormal returns before vs after the headline, and growth of 1 rupee](docs/images/dashboard-backtest.png)
+
+## How it works
+
+| Module | What it does | Code |
+|---|---|---|
+| 1. Ingestion | GNews API and yfinance into SQLite; each article stored once and linked to every stock it mentions | `ingest.py`, `src/ingest`, `src/storage` |
+| 2. Sentiment | FinBERT scores only the sentences about each company; drops source-only and list mentions, sister companies and syndicated copies; daily aggregate in IST | `score.py`, `src/sentiment` |
+| 3. Backtest | Event study and long-only strategy with next-session entry, 0.25% costs, cleaned prices, in/out-of-sample split | `backtest.py`, `src/backtest` |
+| 4. RAG | MiniLM embeddings in Chroma, filtered by stock and date; Gemini (via LangChain) answers only from retrieved items and cites each claim | `rag.py`, `src/rag` |
+| 5. Dashboard | Streamlit + Altair: live sentiment, backtest, "ask the news" | `app.py`, `src/app` |
+
+### Sentiment that is actually about the company
+
+Scoring whole articles failed when I read the most extreme scores. Each problem below became a rule
+and a unit test (`src/sentiment/entities.py`):
+
+| Problem found in live data | Example | Fix |
+|---|---|---|
+| Company is the source, not the subject | "...support manufacturing growth: ICICI Bank" | Trailing `: Name`, "according to Name", "Name economists", "Chief Economist, Name" are not mentions |
+| Title about the sector, description about the company | "IT Stocks Rally" / "Infosys was the only stock trading lower" | Score only sentences that mention the company |
+| One story, several URLs | One ICICI story counted 3 times | Collapse identical titles or identical scored sentences per stock per day |
+| Company is one name in a list | "Stocks to watch: ..., Reliance, Bharti..." | Mentions in a list of 4+ names are dropped |
+| Sentence only reports a price move | "Reliance Industries has fallen 25% in 2026" | Flagged; the backtest is run with and without these |
+| Ambiguous names | Bare "Reliance" meant an Anil Ambani company 30% of the time | Only unambiguous names (Reliance Industries, RIL, Jio); sister companies excluded |
+
+Score per (article, company) = mean of FinBERT `P(positive) − P(negative)` over the relevant sentences, in [−1, 1].
+
+### Backtest design
+
+- **Data:** Times of India headline archive ([Harvard Dataverse](https://doi.org/10.7910/DVN/DPQMQH), CC0), filtered with the same entity rules. Most stocks have news on only 10–40 days a year, so the test is **event-driven and pooled** across stocks.
+- **No lookahead:** headlines have dates but no times, so a headline dated D is traded at the **open of the first session after D**.
+- **Strategy:** long-only on positive news (threshold 0.3), hold 1 or 5 sessions, 0.25% round-trip cost, idle cash earns 6.5% a year. Parameters were fixed before testing; 2015 to mid-2020 is out-of-sample.
+- **Placebo:** scores are shuffled across events 2,000 times. The before-headline spread is far outside the shuffled range in every variant; the after-entry spread is significant only for the 5-day hold ([`reports/placebo.md`](reports/placebo.md)).
+- **Strategy and benchmark** are scored only over the news period (first entry to last exit, May 2001 to July 2020), not on later years with no headlines.
+- **Price cleaning:** Yahoo's old NSE data had pre-listing rows, zero-volume holiday rows with unadjusted prices (Kotak +381% then −80%) and a bad bonus tick. `clean_prices` removes 1,024 rows; without it, buy-and-hold showed 43% a year.
+
+Strategy vs equal-weight buy-and-hold, 5-day hold, price-report headlines excluded:
+
+| Period | Strategy CAGR | Strategy Sharpe | Strategy max DD | Buy & hold CAGR | Buy & hold Sharpe |
+|---|---|---|---|---|---|
+| 2001–2014 (in-sample) | −5.3% | −0.39 | −77% | 32.4% | 0.98 |
+| 2015–mid 2020 (out-of-sample) | 5.7% | 0.03 | −29% | 13.9% | 0.45 |
+
+All four variants are in [`reports/results.md`](reports/results.md). The 1-day versions lose heavily after costs.
+
+### Ask the news (RAG)
+
+`python rag.py ask "Why did Infosys shares fall recently?"`
+
+1. Stocks in the question are detected with the same entity rules ("ICICI Prudential" is not ICICI Bank); "recently", "latest" or "this week" add a 60-day date filter.
+2. The top k items by cosine similarity are retrieved from Chroma, filtered by stock and date.
+3. Gemini (temperature 0) must cite an item for every claim and use no outside knowledge.
+4. No matching news means no LLM call. Citations that don't match a supplied item are flagged.
+
+![Live tab: price and daily company sentiment, with the scored sentences](docs/images/dashboard-live.png)
+
+## Run it
+
+Windows (Command Prompt); on macOS/Linux use `source .venv/bin/activate` and `cp`.
 
 ```bat
+git clone https://github.com/Arocks1674/fin-sentiment-trader.git
 cd fin-sentiment-trader
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
 copy .env.example .env
-notepad .env
 ```
-Put your GNews key (https://gnews.io) and Gemini key (https://aistudio.google.com) in `.env`. `.env` is git-ignored.
 
-## Run
+Add a [GNews](https://gnews.io) key and a [Gemini](https://aistudio.google.com) key to `.env` (git-ignored). Then:
 
 ```bat
-python -m pytest -q              :: 65 tests should pass
-python ingest.py --prices-only   :: 2 years of daily prices for 10 Nifty stocks
-python ingest.py                 :: prices + latest news (uses 10 GNews requests)
-python score.py                  :: score new articles per company, print daily sentiment
-python score.py --audit          :: list articles dropped as irrelevant, and why
-python score.py --rescore        :: recompute all scores after changing the rules
-python coverage.py               :: download historical headlines, report usable news per stock per year
-python ingest.py --prices-only --start 2001-01-01   :: price history for the backtest
-python backtest.py               :: event study + strategy vs buy-and-hold -> reports/results.md, reports/equity.png
-python rag.py index              :: embed stored news into the Chroma vector store
-python rag.py ask "Why did Infosys shares fall?"   :: cited answer from the stored news
-python rag.py models             :: list Gemini models your key can use
-streamlit run app.py             :: dashboard at http://localhost:8501
+python -m pytest -q                                  :: 67 tests, no network needed
+python ingest.py                                     :: prices + latest news (10 GNews requests)
+python score.py                                      :: FinBERT scores per company (score.py --audit shows dropped articles)
+python coverage.py                                   :: download the headline archive, coverage per stock per year
+python ingest.py --prices-only --start 2001-01-01    :: price history for the backtest
+python backtest.py                                   :: writes reports/results.md and reports/equity.png
+python backtest.py --placebo                         :: permutation test, writes reports/placebo.md
+python rag.py index                                  :: embed stored news into Chroma
+python rag.py ask "What did RIL announce?"           :: cited answer
+streamlit run app.py                                 :: dashboard at http://localhost:8501
 ```
 
-Data lands in `data/trader.db` (SQLite):
+First runs download FinBERT (~440 MB) and MiniLM (~90 MB).
 
-- `articles`: one row per unique article (primary key = SHA-1 of the URL, so re-running never duplicates)
-- `article_tickers`: which stocks each article is about. One story about two banks is stored once and linked to both.
-- `prices`: one row per ticker per trading day (upsert, so re-running refreshes)
-- `sentiment`: whole-article FinBERT scores (module 2, kept for comparison)
-- `entity_sentiment`: per (article, company) score from only the sentences about that company, plus why an article was dropped
+## Project layout
 
-## Sentiment (modules 2, 2.1, 2.2)
+```
+app.py  ingest.py  score.py  coverage.py  backtest.py  rag.py   entry points
+config.py                                                     settings, tickers, paths
+src/ingest      GNews, yfinance, archive download, price cleaning
+src/storage     SQLite schema and queries
+src/sentiment   entity rules, FinBERT scorer, daily aggregation
+src/backtest    event study, portfolio, metrics
+src/rag         corpus, Chroma store, retrieval + cited answers
+src/app         dashboard data shaping and charts
+tests/          67 pytest tests (fake embeddings and LLM for RAG)
+```
 
-A first version scored `title + description` for each article. Inspecting the most
-positive and negative results showed three problems:
+## Limits
 
-| Problem found | Example from the live data | Fix |
-|---|---|---|
-| Company is the source, not the subject | "Exports, rising power demand to support manufacturing growth: ICICI Bank" | Trailing `: Name`, "according to Name", "Name economists" do not count as a mention |
-| Title is about the sector, description about the company | Title: "IT Stocks Rally"; description: "Infosys was the only stock trading lower" | Score only the sentences that mention the company |
-| Same story, several URLs | One ICICI story counted 3 times | Collapse identical titles, or identical scored sentences, per stock per day |
-| Company is one name in a list | "Stocks to watch: Rays of Belief, Prasol, Reliance, Bharti..." | Mentions inside a comma list of 4+ names are dropped |
-| Sentence reports a price move | "Reliance Industries has fallen 25% in 2026" | Kept but flagged; `score_news` excludes these so the backtest can test whether sentiment adds anything beyond echoing past returns |
+- One newspaper, headlines only, dates without times: you cannot trade before the move.
+- Survivorship bias: the 10 stocks are today's large caps, chosen with hindsight, which flatters buy-and-hold.
+- FinBERT measures tone, not size: a 0.55% dip can score −0.97.
+- Passing mentions still count (a building fire near a Kotak branch scored −0.84 for Kotak); fixing this needs a relevance model, not more rules.
+- GNews' free tier keeps about 30 days of history, so live sentiment can't be backtested yet.
+- RAG answers are only as complete as the stored news; there is no formal retrieval evaluation yet.
 
-Sister companies ("ICICI Prudential", "ITC Hotels", "L&T Finance") are excluded before
-matching. Job titles before the company ("Chief Economist, Kotak Mahindra Bank") count as source.
-Rules live in `src/sentiment/entities.py`; every live example above is a test.
+Research project, not investment advice.
 
-On the live data (102 stock-article pairs) these rules keep 84, and drop 14 list mentions and 4
-source-only mentions.
+## License
 
-Per (article, company) the score is the average of FinBERT's `positive - negative`
-over the relevant sentences, in [-1, 1]. Daily values are grouped by India date (IST).
-
-## Backtest (module 3)
-
-**Data.** Times of India headlines archive ("News Headlines of India", Harvard Dataverse,
-doi:10.7910/DVN/DPQMQH, CC0), 2001 to mid-2020. `coverage.py` keeps business-section
-headlines that pass the same entity rules as the live pipeline. Checking coverage first
-changed the design: most stocks have news on only 10-40 days a year, so a daily
-all-stocks strategy would mostly trade noise. The backtest is therefore **event-driven
-and pooled** across the 10 stocks.
-
-Coverage also exposed two data problems, both fixed in the entity rules and tested:
-30% of bare-"Reliance" headlines were Anil Ambani group companies (Reliance Infocomm,
-Reliance MF...), so only unambiguous names count for RIL; and the archive writes lists
-with semicolons ("TCS; Wipro; Infosys"), which the list rule now handles.
-
-**Timing (no lookahead).** The archive has dates but no times, so a headline dated D is
-traded at the **open of the first session after D** and held 1 or 5 sessions.
-
-**What is measured.**
-- Event study: mean *abnormal* return (stock minus the equal-weight average return of all
-  10 stocks over the same window) after negative, neutral and positive news, with t-stats.
-- Strategy: long-only on positive news (Indian cash equities cannot be shorted overnight),
-  0.25% round-trip cost, idle cash earns the risk-free rate, vs equal-weight buy-and-hold.
-  CAGR, Sharpe and max drawdown for 2001-2014 and 2015-2020 separately.
-- Everything is run **with and without price-report headlines**, to check whether any edge
-  is just sentiment echoing past price moves.
-
-Settings (threshold 0.3, hold 1 and 5 days) were fixed before looking at results, so
-2015-2020 is an honest out-of-sample check. As a placebo, random sentiment scores produce
-t-stats near zero and a losing strategy after costs.
-
-**Price cleaning.** Yahoo's old NSE data had to be cleaned first. It includes rows before
-TCS listed (Aug 2004), zero-volume holiday rows carrying unadjusted prices (Kotak +381% one
-day, -80% the next; Reliance +337% on its 2005 demerger date) and a one-day unadjusted
-bonus on L&T. These inflated equal-weight buy-and-hold to 43% a year and made positive news
-look like it caused crashes. `clean_prices` removes 1,024 such rows, with tests.
-
-### Findings (4,388 headlines, 2001 to mid-2020)
-
-| News | Abnormal return, 5 days BEFORE the headline | Abnormal return, 5 days AFTER |
-|---|---|---|
-| Positive | +0.50% (t = 4.2) | -0.44% (t = -4.5) |
-| Negative | -0.86% (t = -4.9) | +0.10% (not significant) |
-
-1. **Newspaper headlines arrive after the price has moved.** Stocks rise before positive
-   headlines and fall before negative ones, then positive-news stocks partly reverse.
-   The information is priced before the paper prints it.
-2. **So a long-only strategy on positive headlines does not beat buy-and-hold** in either
-   period, with or without price-report headlines. After 0.25% costs, the 1-day version
-   loses heavily because it trades so often.
-3. Excluding price-report headlines barely changes the result, so the reversal is not just
-   sentiment echoing past returns.
-
-Full tables: `reports/results.md`; equity curves: `reports/equity.png`.
-
-**What would be needed for an edge:** timestamped news (minutes, not dates) so trades can
-happen before the move, which is what the live GNews pipeline collects going forward.
-
-## Ask the news (module 4, RAG)
-
-`rag.py ask` answers questions using only the stored news, with citations.
-
-1. **Corpus.** One document per story: live GNews articles (title + description, source,
-   URL) and the 2001-2020 archive headlines. Each document carries one boolean flag per
-   stock it is about, plus its date as an integer, so Chroma can filter on both.
-2. **Retrieval.** The question is checked against the same entity rules as the sentiment
-   pipeline ("Why did Infosys fall?" -> INFY; "ICICI Prudential" is not ICICI Bank). Search
-   is restricted to those stocks and to an optional `--since/--until` range, then the top
-   `k` items by cosine similarity of local `all-MiniLM-L6-v2` embeddings are returned.
-3. **Generation.** Gemini (LangChain `ChatGoogleGenerativeAI`, temperature 0) gets the
-   numbered items and must cite one per claim, use no outside knowledge, and say what is
-   missing when the items do not answer the question.
-4. **Guardrails.** No matching news means no LLM call ("no news found"). Citation numbers
-   that were never supplied are flagged in the output.
-
-Indexing is incremental: re-running `rag.py index` only embeds new stories.
-
-## Dashboard (module 5)
-
-`streamlit run app.py` opens three tabs:
-
-- **Live sentiment.** Pick a stock and a window: closing price on top, daily FinBERT
-  sentiment below on the same date axis (two charts, not two y-axes), then the scored
-  articles with the exact sentences that were scored and a link to each source.
-  Times are shown in IST and syndicated copies are collapsed.
-- **Backtest.** Toggle the holding period (1 or 5 days) and price-report exclusion. Shows
-  abnormal returns 5 days before vs after the headline, and growth of 1 rupee for the news
-  strategy vs equal-weight buy-and-hold (log scale, after costs). Same engine as `backtest.py`.
-- **Ask the news.** The module 4 RAG pipeline with a source table; disabled with a message
-  if `GEMINI_API_KEY` is missing.
-
-Data shaping and charts live in `src/app/views.py` so they are unit-tested; an AppTest
-smoke test checks the app starts on an empty database and tells the user what to run.
-
-## Known limits
-
-- The score is FinBERT's confidence about tone, not the size of the news: a 0.55% dip can score -0.97.
-- A passing mention still counts: "HSBC competes with ICICI Bank" counts for ICICI, and a fire in a
-  building that also houses a Kotak branch scores -0.84 for Kotak. Separating subject from
-  passing mention needs more than rules (e.g. an LLM relevance check); not built.
-- GNews free tier returns only recent articles (about 30 days) and ~100 requests/day,
-  so it feeds the live dashboard; the backtest uses the historical archive instead.
-- The historical archive is one general newspaper, headlines only, ending mid-2020.
-- Survivorship bias: the 10 stocks are today's large caps, chosen with hindsight, so
-  buy-and-hold looks unusually strong (about 31% a year in 2001-2014).
-- Some corporate actions (e.g. L&T's 2004 cement demerger) may still be unadjusted in Yahoo data.
-- RAG answers can only be as current and complete as the stored news (about 100 live articles
-  plus archive headlines); a question about a bare "Reliance" searches all news, because
-  bare "Reliance" is ambiguous (see backtest data notes).
-- yfinance is an unofficial Yahoo wrapper; if it prints "possibly delisted", it is
-  usually a network or rate-limit issue, not a delisting.
+[MIT](LICENSE)

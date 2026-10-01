@@ -18,14 +18,14 @@ Event study (abnormal return vs equal-weight market):
 
 Strategy vs benchmark:
 
-| period                    | strategy        |   CAGR_% |   Sharpe |   MaxDD_% |
-|:--------------------------|:----------------|---------:|---------:|----------:|
-| 2001-2014 (in-sample)     | news long-only  |   -17.25 |    -1.51 |    -93.61 |
-| 2001-2014 (in-sample)     | buy & hold (EW) |    30.77 |     0.93 |    -56.92 |
-| 2015-2020 (out-of-sample) | news long-only  |    -2.12 |    -1.02 |    -55.15 |
-| 2015-2020 (out-of-sample) | buy & hold (EW) |    12.66 |     0.41 |    -37.55 |
-| full period               | news long-only  |   -10.67 |    -1.30 |    -96.98 |
-| full period               | buy & hold (EW) |    22.18 |     0.73 |    -56.92 |
+| period                        | strategy        |   CAGR_% |   Sharpe |   MaxDD_% |
+|:------------------------------|:----------------|---------:|---------:|----------:|
+| 2001-2014 (in-sample)         | news long-only  |   -17.86 |    -1.53 |    -93.61 |
+| 2001-2014 (in-sample)         | buy & hold (EW) |    32.41 |     0.98 |    -56.92 |
+| 2015-mid 2020 (out-of-sample) | news long-only  |   -11.34 |    -1.49 |    -55.15 |
+| 2015-mid 2020 (out-of-sample) | buy & hold (EW) |    13.24 |     0.41 |    -37.55 |
+| full period                   | news long-only  |   -16.04 |    -1.51 |    -96.98 |
+| full period                   | buy & hold (EW) |    26.60 |     0.85 |    -56.92 |
 
 
 
@@ -42,14 +42,14 @@ Event study (abnormal return vs equal-weight market):
 
 Strategy vs benchmark:
 
-| period                    | strategy        |   CAGR_% |   Sharpe |   MaxDD_% |
-|:--------------------------|:----------------|---------:|---------:|----------:|
-| 2001-2014 (in-sample)     | news long-only  |   -13.89 |    -1.39 |    -88.77 |
-| 2001-2014 (in-sample)     | buy & hold (EW) |    30.77 |     0.93 |    -56.92 |
-| 2015-2020 (out-of-sample) | news long-only  |     0.27 |    -0.78 |    -44.50 |
-| 2015-2020 (out-of-sample) | buy & hold (EW) |    12.66 |     0.41 |    -37.55 |
-| full period               | news long-only  |    -7.70 |    -1.15 |    -93.45 |
-| full period               | buy & hold (EW) |    22.18 |     0.73 |    -56.92 |
+| period                        | strategy        |   CAGR_% |   Sharpe |   MaxDD_% |
+|:------------------------------|:----------------|---------:|---------:|----------:|
+| 2001-2014 (in-sample)         | news long-only  |   -14.42 |    -1.41 |    -88.77 |
+| 2001-2014 (in-sample)         | buy & hold (EW) |    32.41 |     0.98 |    -56.92 |
+| 2015-mid 2020 (out-of-sample) | news long-only  |    -6.63 |    -1.14 |    -44.50 |
+| 2015-mid 2020 (out-of-sample) | buy & hold (EW) |    13.24 |     0.41 |    -37.55 |
+| full period                   | news long-only  |   -12.26 |    -1.34 |    -93.45 |
+| full period                   | buy & hold (EW) |    26.60 |     0.85 |    -56.92 |
 
 
 
@@ -66,14 +66,14 @@ Event study (abnormal return vs equal-weight market):
 
 Strategy vs benchmark:
 
-| period                    | strategy        |   CAGR_% |   Sharpe |   MaxDD_% |
-|:--------------------------|:----------------|---------:|---------:|----------:|
-| 2001-2014 (in-sample)     | news long-only  |    -5.58 |    -0.38 |    -75.59 |
-| 2001-2014 (in-sample)     | buy & hold (EW) |    30.77 |     0.93 |    -56.92 |
-| 2015-2020 (out-of-sample) | news long-only  |     3.55 |    -0.20 |    -37.05 |
-| 2015-2020 (out-of-sample) | buy & hold (EW) |    12.66 |     0.41 |    -37.55 |
-| full period               | news long-only  |    -1.52 |    -0.31 |    -75.59 |
-| full period               | buy & hold (EW) |    22.18 |     0.73 |    -56.92 |
+| period                        | strategy        |   CAGR_% |   Sharpe |   MaxDD_% |
+|:------------------------------|:----------------|---------:|---------:|----------:|
+| 2001-2014 (in-sample)         | news long-only  |    -5.91 |    -0.39 |    -75.59 |
+| 2001-2014 (in-sample)         | buy & hold (EW) |    32.41 |     0.98 |    -56.92 |
+| 2015-mid 2020 (out-of-sample) | news long-only  |     0.06 |    -0.29 |    -37.05 |
+| 2015-mid 2020 (out-of-sample) | buy & hold (EW) |    13.90 |     0.45 |    -37.55 |
+| full period                   | news long-only  |    -4.23 |    -0.36 |    -75.59 |
+| full period                   | buy & hold (EW) |    26.80 |     0.85 |    -56.92 |
 
 
 
@@ -90,12 +90,12 @@ Event study (abnormal return vs equal-weight market):
 
 Strategy vs benchmark:
 
-| period                    | strategy        |   CAGR_% |   Sharpe |   MaxDD_% |
-|:--------------------------|:----------------|---------:|---------:|----------:|
-| 2001-2014 (in-sample)     | news long-only  |    -5.00 |    -0.38 |    -76.96 |
-| 2001-2014 (in-sample)     | buy & hold (EW) |    30.77 |     0.93 |    -56.92 |
-| 2015-2020 (out-of-sample) | news long-only  |     6.24 |     0.02 |    -29.36 |
-| 2015-2020 (out-of-sample) | buy & hold (EW) |    12.66 |     0.41 |    -37.55 |
-| full period               | news long-only  |    -0.03 |    -0.25 |    -76.96 |
-| full period               | buy & hold (EW) |    22.18 |     0.73 |    -56.92 |
+| period                        | strategy        |   CAGR_% |   Sharpe |   MaxDD_% |
+|:------------------------------|:----------------|---------:|---------:|----------:|
+| 2001-2014 (in-sample)         | news long-only  |    -5.32 |    -0.39 |    -76.96 |
+| 2001-2014 (in-sample)         | buy & hold (EW) |    32.41 |     0.98 |    -56.92 |
+| 2015-mid 2020 (out-of-sample) | news long-only  |     5.70 |     0.03 |    -29.36 |
+| 2015-mid 2020 (out-of-sample) | buy & hold (EW) |    13.90 |     0.45 |    -37.55 |
+| full period                   | news long-only  |    -2.28 |    -0.29 |    -76.96 |
+| full period                   | buy & hold (EW) |    26.80 |     0.85 |    -56.92 |
 

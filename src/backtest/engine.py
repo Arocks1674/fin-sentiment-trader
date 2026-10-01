@@ -112,6 +112,48 @@ def portfolio_returns(ev: pd.DataFrame, opens: pd.DataFrame, closes: pd.DataFram
     return pd.Series({d: (np.mean(v) if v else cash_return) for d, v in pos_ret.items()}).sort_index()
 
 
+def spread_permutation_test(ev: pd.DataFrame, threshold: float, n: int = 2000, seed: int = 0) -> pd.DataFrame:
+    """Is the positive-minus-negative return spread bigger than chance?
+
+    Per-group t-stats can mislead: every news day (whatever its tone) is followed by a
+    small negative drift, so even random "positive" labels look significant. The fair test
+    shuffles the sentiment scores across events (same events, same score distribution, no
+    link between tone and returns) and asks how often the shuffled spread is as extreme
+    as the real one.
+    """
+    ev = ev.dropna(subset=["pre_abn_ret"])
+    rng = np.random.default_rng(seed)
+    out = []
+    for col, label in [("pre_abn_ret", "5 days before"), ("abn_ret", "after entry")]:
+        x = ev[col].to_numpy()
+
+        def spread(scores):
+            pos, neg = scores >= threshold, scores <= -threshold
+            return x[pos].mean() - x[neg].mean()
+
+        real = spread(ev["score"].to_numpy())
+        null = np.array([spread(rng.permutation(ev["score"].to_numpy())) for _ in range(n)])
+        out.append({"window": label, "pos_minus_neg_%": real * 100,
+                    "placebo_2.5%": np.percentile(null, 2.5) * 100,
+                    "placebo_97.5%": np.percentile(null, 97.5) * 100,
+                    "p_value": (np.sum(np.abs(null) >= abs(real)) + 1) / (n + 1),
+                    "all_news_mean_%": x.mean() * 100,
+                    "all_news_t": x.mean() / (x.std(ddof=1) / np.sqrt(len(x)))})
+    return pd.DataFrame(out).set_index("window")
+
+
+def trim_to_events(returns: pd.Series, ev: pd.DataFrame) -> pd.Series:
+    """Keep only the days the news sample covers: first entry to last exit.
+
+    Prices run to today but the headline archive ends in mid-2020. Without this cut,
+    the strategy would earn the risk-free rate for years with no news while the
+    benchmark keeps compounding, and both would be scored on a period with no signal.
+    """
+    if ev.empty:
+        return returns.iloc[0:0]
+    return returns[(returns.index >= ev["entry"].min()) & (returns.index <= ev["exit"].max())]
+
+
 def benchmark_returns(closes: pd.DataFrame) -> pd.Series:
     """Equal-weight buy-and-hold of all stocks, rebalanced daily."""
     return closes.pct_change(fill_method=None).mean(axis=1).fillna(0.0)
